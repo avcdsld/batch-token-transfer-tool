@@ -17,8 +17,9 @@ import {
 import { useForm } from 'react-hook-form';
 import { useRecoilState } from 'recoil';
 import { userAccountState } from '../store';
-import { logout, sendFT, waitTx } from '../services/flow';
+import { logout, sendFT, getTxChannel, getBalances } from '../services/flow';
 import ConfirmTable from '../components/ConfirmTable';
+import SendButton from './SendButton';
 
 type Currency = {
   symbol: string;
@@ -70,11 +71,16 @@ const BatchTransfer = () => {
   } = useForm();
   const [userAccount, setUserAccount] = useRecoilState(userAccountState);
   const [currency, setCurrency] = useState(FLOWCurrency);
+  const [recipientTemplate, setRecipientTemplate] = useState(''); // text area
+  
   const [toAddresses, setToAddresses] = useState<string[]>([]);
   const [amounts, setAmounts] = useState<string[]>([]);
   const [totalAmount, setTotalAmount] = useState<BigNumber>(new BigNumber(0.0));
+  
   const [remaining, setRemaining] = useState<BigNumber>(new BigNumber(0.0));
   const [txHash, setTxHash] = useState('');
+  const [txStatus, setTxStatus] = useState(-1)
+  
   const [errorText, setErrorText] = useState('');
   const [checkDone, setCheckDone] = useState(false);
 
@@ -86,12 +92,6 @@ const BatchTransfer = () => {
   };
 
   const loadToAddressesAndAmounts = (recipientsAndAmountsStr: string) => {
-    setErrorText('');
-    setCheckDone(false);
-    if (!recipientsAndAmountsStr) {
-      resetConfirm();
-      return;
-    }
     const toAddresses: string[] = [];
     const amounts: string[] = [];
     recipientsAndAmountsStr
@@ -147,7 +147,7 @@ const BatchTransfer = () => {
           currency.vaultPublicPath
         );
         setTxHash(tx.transactionId);
-        await waitTx(tx);
+        setTxStatus(0)  // reset to 0
       } catch (e) {
         console.log('error:', e);
         setErrorText(String(e));
@@ -155,9 +155,50 @@ const BatchTransfer = () => {
     }
   };
 
+  // on userAccount changed or textArea's text is modified
   useEffect(() => {
-    loadToAddressesAndAmounts('');
-  }, []);
+    setErrorText('');
+    setCheckDone(false);
+    if (!recipientTemplate) {
+      resetConfirm();
+      return;
+    }
+    loadToAddressesAndAmounts(recipientTemplate);
+  }, [recipientTemplate, userAccount]);
+
+  //  on txHash changed
+  useEffect(() => {
+    if (!txHash) {
+      return
+    }
+    getTxChannel(txHash).subscribe((x: any) => {
+      if(!x.status){
+        return
+      }
+      console.log(`tx status[${x.status}]:`, x)
+      setTxStatus(x.status)
+    })
+  }, [txHash])
+
+  // on currency changed or tx status changed
+  useEffect(() => {
+    if (!userAccount) {
+      return
+    }
+    const syncAccount = async () => {
+      const balances = await getBalances(userAccount?.address)
+      console.log(balances)
+      setUserAccount({
+        address: userAccount.address,
+        dotFindName: '', // TODO:
+        balance: {
+          FLOW: Number(balances[0]).toFixed(8),
+          FUSD: Number(balances[1]).toFixed(8),
+        },
+      })
+    }
+    syncAccount()
+  }, [currency, txStatus])
 
   return (
     <Box p={4} bg={'white'} shadow='md' rounded='md'>
@@ -166,19 +207,19 @@ const BatchTransfer = () => {
           <Stack spacing={4} padding={4} width={[320, 400, 500]}>
             {userAccount ? (
               <>
-                <Box as='p'>
+                <Box>
                   <Heading as='h5' size='sm'>
                     Address
                   </Heading>{' '}
                   {userAccount.address}
                 </Box>
-                <Box as='p'>
+                <Box>
                   <Heading as='h5' size='sm'>
                     Balance
                   </Heading>{' '}
                   {Number(userAccount.balance['FLOW'])} FLOW,{' '}
                   {Number(userAccount.balance['FUSD'])} FUSD
-                  <Box as='p'>
+                  <Box>
                     <Button
                       marginTop={4}
                       colorScheme='gray'
@@ -238,7 +279,7 @@ const BatchTransfer = () => {
                 mb={2}
                 size={'md'}
                 onChange={(e) => {
-                  loadToAddressesAndAmounts(e.target.value);
+                  setRecipientTemplate(e.target.value);
                 }}
               />
             </FormControl>
@@ -266,32 +307,16 @@ const BatchTransfer = () => {
               )}
             </VStack>
             <Center>
-              <Button
-                mt={4}
-                colorScheme='blue'
-                size={'lg'}
+              <SendButton
+                status={txStatus}
+                txid={txHash}
                 isLoading={isSubmitting}
                 disabled={!!errorText}
-                type='submit'
-              >
-                {checkDone ? `Send ${currency.symbol}` : 'Check'}
-              </Button>
+                checkDone={checkDone}
+                symbol={currency.symbol}
+                explorerUrl={explorerUrl}
+                />
             </Center>
-            <VStack>
-              {txHash && (
-                <>
-                  <Box m={6}>
-                    <a
-                      href={explorerUrl + txHash}
-                      target='_blank'
-                      rel='noreferrer'
-                    >
-                      <Text as='u'>View Tx on Flowscan</Text>
-                    </a>
-                  </Box>
-                </>
-              )}
-            </VStack>
           </Stack>
         </Center>
       </form>
