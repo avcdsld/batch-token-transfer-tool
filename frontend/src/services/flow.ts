@@ -2,11 +2,16 @@ const fcl = require('@onflow/fcl'); // Using import causes an error.
 import * as types from '@onflow/types';
 
 fcl.config({
-  'accessNode.api': process.env.NEXT_PUBLIC_NETWORK == 'mainnet' ? 'https://rest-mainnet.onflow.org' : 'https://rest-testnet.onflow.org',
-  'discovery.wallet': process.env.NEXT_PUBLIC_NETWORK == 'mainnet' ? "https://fcl-discovery.onflow.org/authn" : 'https://fcl-discovery.onflow.org/testnet/authn',
+  'accessNode.api':
+    process.env.NEXT_PUBLIC_NETWORK == 'mainnet'
+      ? 'https://rest-mainnet.onflow.org'
+      : 'https://rest-testnet.onflow.org',
+  'discovery.wallet':
+    process.env.NEXT_PUBLIC_NETWORK == 'mainnet'
+      ? 'https://fcl-discovery.onflow.org/authn'
+      : 'https://fcl-discovery.onflow.org/testnet/authn',
   'app.detail.title': 'Batch Token Transfer Tool',
-  'app.detail.icon':
-    'https://batch-token-transfer-tool.vercel.app/logo.png',
+  'app.detail.icon': 'https://batch-token-transfer-tool.vercel.app/logo.png',
 });
 
 const fungibleTokenAddress =
@@ -84,7 +89,7 @@ const sendFT = async (
   currencyContractName: string,
   currencyAddress: string,
   currencyVaultStoragePath: string,
-  currencyVaultPublicPath: string,
+  currencyVaultPublicPath: string
 ): Promise<any> => {
   const txCode = `
 import FungibleToken from ${fungibleTokenAddress}
@@ -115,4 +120,53 @@ transaction(toAddresses: [Address], amounts: [UFix64]) {
   return await sendTx(txCode, args);
 };
 
-export { connectWallet, logout, getBalances, sendFT, getTxChannel };
+const hasVault = async (
+  addresses: string[],
+  currencyContractAddress: string,
+  currencyContractName: string,
+  currenctBlancePathName: string,
+): Promise<boolean[]> => {
+  const script = `
+import FungibleToken from ${fungibleTokenAddress}
+import ${currencyContractName} from ${currencyContractAddress}
+
+pub fun main(addresses: [Address]): [Bool] {
+  let res: [Bool] = []
+
+  for address in addresses {
+    let acct = getAccount(address)
+
+    let cap = acct.getCapability(/public/${currenctBlancePathName})
+    if cap == nil {
+      res.append(false)
+      continue
+    }
+
+    let vaultRef = cap.borrow<&${currencyContractName}.Vault{FungibleToken.Balance}>()
+    res.append(vaultRef != nil)
+  }
+  
+  return res
+}`;
+
+  const res = await fcl.query({
+    cadence: script,
+    args: (arg: any) => [arg(addresses, types.Array(types.Address))],
+  });
+
+  return res;
+}
+
+const hasFlowVault = async (
+  addresses: string[]
+): Promise<boolean[]> => {
+  return await hasVault(addresses, flowTokenAddress, 'FlowToken', 'flowTokenBalance');
+}
+
+const hasFusdVault = async (
+  addresses: string[]
+): Promise<boolean[]> => {
+  return await hasVault(addresses, fusdAddress, 'FUSD', 'fusdBalance');
+}
+
+export { connectWallet, logout, getBalances, sendFT, getTxChannel, hasVault, hasFlowVault, hasFusdVault };
