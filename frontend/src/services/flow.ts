@@ -21,7 +21,7 @@ const fusdAddresses = {
   testnet: '0xe223d8a629e49c68'
 }
 
-const connectWallet = async (network: string = 'testnet') => {
+const connectWallet = async (network: string = 'testnet', setter: any) => {
   fcl.config()
     .put('accessNode.api', network === 'mainnet'
       ? 'https://rest-mainnet.onflow.org'
@@ -32,11 +32,13 @@ const connectWallet = async (network: string = 'testnet') => {
     .put('0xFUNGIBLETOKEN', fungibleTokenAddresses[network])
     .put('0xFLOWTOKEN', flowTokenAddresses[network])
     .put('0xFUSD', fusdAddresses[network])
-  const account = await fcl.authenticate();
-  if (!account.loggedIn) {
+  try {
+    await fcl.authenticate();
+  } catch (e) {
+    console.log(e);
     return null;
   }
-  return account;
+  fcl.currentUser().subscribe(setter);
 };
 
 const logout = async () => {
@@ -137,6 +139,10 @@ pub fun main(addresses: [Address]): [Bool] {
 
   for address in addresses {
     let acct = getAccount(address)
+    if acct == nil {
+      res.append(false)
+      continue
+    }
 
     let cap = acct.getCapability(/public/${currenctBlancePathName})
     if cap == nil {

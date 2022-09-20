@@ -1,32 +1,51 @@
-import { Button } from '@chakra-ui/react';
+import { useState, useEffect } from 'react';
 import { useRecoilState } from 'recoil';
 import { userAccountState, networkState } from '../store';
-import { connectWallet, getBalances } from '../services/flow';
+import { connectWallet, logout, getBalances } from '../services/flow';
+import styles from '../styles/ConnectButton.module.css';
+
+type User = {
+  loggedIn: boolean;
+  addr: string;
+};
 
 const ConnectButton = () => {
-  const [, setUserAccount] = useRecoilState(userAccountState);
+  const [user, setUser] = useState<User>({ loggedIn: false, addr: '' });
+  const [userAccount, setUserAccount] = useRecoilState(userAccountState);
   const [network] = useRecoilState(networkState);
 
   const connect = async () => {
-    const account = await connectWallet(network?.network);
-    if (!account) {
+    await logout();
+    await connectWallet(network?.network, setUser);
+  };
+
+  const disconnect = async () => {
+    await logout();
+    setUserAccount(null);
+  };
+
+  useEffect(() => {
+    if (!user.loggedIn) {
       return;
     }
-    const balances = await getBalances(account.addr);
+    const balances = getBalances(user.addr);
     setUserAccount({
-      address: account.addr,
+      address: user.addr,
       dotFindName: '', // TODO:
       balance: {
         FLOW: Number(balances[0]).toFixed(8),
         FUSD: Number(balances[1]).toFixed(8),
       },
     });
-  };
+  }, [user]);
 
   return (
-    <Button mt={4} colorScheme='blue' size='lg' onClick={connect}>
-      Connect Wallet
-    </Button>
+    <button
+      className={styles.connectButton}
+      onClick={!userAccount ? connect : disconnect}
+    >
+      {!userAccount ? 'CONNECT' : 'DISCONNECT'}
+    </button>
   );
 };
 
